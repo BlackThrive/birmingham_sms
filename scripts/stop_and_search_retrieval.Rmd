@@ -1,0 +1,210 @@
+---
+title: "Stop and Search data extraction"
+author: Jolyon Miles-Wilson
+output: html_document
+---
+
+This file documents the process for extracting Stop and Search data from the Police API
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+```{r}
+library(tidyverse)
+library(jsonify) # for reading json
+library(leaflet) # for map
+```
+
+# Coordinates
+
+The below code takes a json file specifying a geographic area and reads it into a data frame. Two data frames are created; one with column order longitude, latitude (for plotting on map), the other with column order latitude, longitude (for Police API).
+
+```{r read_coords}
+# Get coordinates of Birmingham area
+file <- jsonify::from_json("../data/birm_geo.json") # read json
+coords <- as.data.frame(file[["coordinates"]][[1]]) # make dataframe
+colnames(coords) <- c("long","lat") # name cols
+coords_for_map <- coords # map wants long, lat
+coords <- subset(coords, select = c("lat","long")) # swap columns for API (wants lat, long)
+```
+
+The area specified by the above-defined coordinates captures the area below
+
+```{r}
+leaflet(as.matrix(coords_for_map)) %>% 
+  addPolygons() %>% 
+  addTiles()
+```
+
+# Data retrieval
+
+The below function extracts stop and search data from the Police API based on a specified area and date range.
+
+## Area retrieval
+```{r area_data}
+# Acquire stop and search data in an area for a time period
+
+# area_coords: area of interest. Must be a data frame with column names "lat" and "long" 
+
+# most_recent_month: numeric value specifying most recent month (e.g. 8 for August)
+
+# most_recent_year (YYYY): numeric value specifying most recenet year (e.g. 2021)
+
+# num_months_backwards: number of months backwards for which data are required. 
+# Default = 12. For example, if the most recent year of data is required, 
+# num_months_backwards would be 12
+
+# If most_recent_month/year is not specified, function will query Police API for
+# most recent update and use this as a start point
+
+retrieve_area_data <- function(area_coords, most_recent_month = NULL, most_recent_year = NULL, num_months_backwards = 12){
+  output <- data.frame() # initialise dataframe
+  
+  # make coordinate string for POST request
+  coord_string <- c()
+  for(i in 1:nrow(area_coords)){
+    if(i == 1){
+      coord_string <- paste(area_coords[i,"lat"],",",area_coords[i,"long"],sep="")
+    }else{
+    coord_string <- paste(coord_string,":",area_coords[i,"lat"],",",area_coords[i,"long"],sep="")
+  }
+  }
+  # get most recent update if most_recent data not specified
+  if(is.null(most_recent_month) || is.null(most_recent_year)){ 
+    date <- httr::content(httr::GET("https://data.police.uk/api/crimes-street-dates"))[[1]][["date"]] # get most recent update
+    most_recent_month <- as.numeric(substr(date,6,7))
+    most_recent_year <- as.numeric(substr(date,1,4))
+  }
+  else{
+    most_recent_month <- most_recent_month
+    most_recent_year <- most_recent_year
+  }
+  
+  # specify formatted date
+  for(i in 1:num_months_backwards){
+    if(i == 1){ # set values for first iteration
+      month_num <- most_recent_month
+      year <- most_recent_year
+    }
+    else{ # subsequent iterations
+      month_num <- month_num - 1 # backwards a month each iteration
+      if(month_num %% 12 == 0){ # if reach a new year, start months from 12 again
+        month_num <- 12
+        year <- year - 1 # backwards a year
+      }
+    }
+    if(month_num < 10){ # paste 0 for months lower than 10
+      month <- paste("0", month_num, sep = "")
+    }
+    else{
+      month <- month_num
+    }
+    
+    date <- paste(year, "-", month, sep = "") # combine dates into format for ukpolice
+    body <- list("poly" = coord_string,
+                 "date" = date)
+    post_request <- httr::POST("https://data.police.uk/api/stops-street?", body = body) # POST request
+    df <- httr::content(post_request) # get content from response
+    df_2 <- data.frame(t(sapply(df,c))) # convert to df
+    output <- rbind(output, df_2) # add to dataframe
+    print(paste("Working... ", i, " of ", num_months_backwards, " retrieved", sep = ""))
+    print(date)
+  }
+  # unlist remaining listed columns. Not ideal solution but will have to do for now
+  output <- output %>%
+    unnest_wider(., outcome_object, names_sep = ".") %>%
+    unnest_wider(., location, names_sep = ".") %>%
+    unnest_wider(., location.street, names_sep = ".")
+  output <- as.matrix(output) # make matrix because write.csv runs into problems with list cols
+  return(output) # testing... change back to output
+}
+
+data <- retrieve_area_data(coords, 8, 2021, 12)
+write.csv(data, file = "../data/birmingham_stop_search_2020_09_2021_08.csv")
+```
+
+## Force retrieval
+```{r force_list}
+# Function for providing a list of forces for use with the API
+
+force_list <- function(){
+  list <- dplyr::bind_rows(httr::content(httr::GET("https://data.police.uk/api/forces")))
+  list <- subset(list, select = c("name","id"))
+  return(list)
+}
+
+#force_list()
+```
+
+```{r force_data}
+# Acquire stop and search data by force for a time period
+
+# force: force of interest (string). Available forces can be found using 
+# force_list() function
+
+# most_recent_month: numeric value specifying most recent month (e.g. 8 for August)
+
+# most_recent_year (YYYY): numeric value specifying most recenet year (e.g. 2021)
+
+# num_months_backwards: number of months backwards for which data are required. 
+# Default = 12. For example, if the most recent year of data is required, 
+# num_months_backwards would be 12
+
+# If most_recent_month/year is not specified, function will query Police API for
+# most recent update and use this as a start point
+
+retrieve_force_data <- function(force, most_recent_month = NULL, most_recent_year = NULL, num_months_backwards = 12){
+  output <- data.frame() # initialise dataframe
+  if(is.null(most_recent_month) || is.null(most_recent_year)){ # if most_recent data not specified
+    date <- httr::content(httr::GET("https://data.police.uk/api/crimes-street-dates"))[[1]][["date"]] # get most recent update
+    most_recent_month <- as.numeric(substr(date,6,7))
+    most_recent_year <- as.numeric(substr(date,1,4))
+  }
+  else{
+    most_recent_month <- most_recent_month
+    most_recent_year <- most_recent_year
+  }
+  for(i in 1:num_months_backwards){
+    if(i == 1){ # set values for first iteration
+      month_num <- most_recent_month
+      year <- most_recent_year
+    }
+    else{ # subsequent iterations
+      month_num <- month_num - 1 # backwards a month each iteration
+      if(month_num %% 12 == 0){ # if reach a new year, start months from 12 again
+        month_num <- 12
+        year <- year - 1 # backwards a year
+      }
+    }
+    if(month_num < 10){ # paste 0 for months lower than 10
+      month <- paste("0", month_num, sep = "")
+    }
+    else{
+      month <- month_num
+    }
+    
+    date <- paste(year, "-", month, sep = "") # combine dates into format for ukpolice
+    body <- list("force" = force,
+                 "date" = date)
+    post_request <- httr::POST("https://data.police.uk/api/stops-force?", body = body) # POST request
+    df <- httr::content(post_request) # get content
+    df_2 <- data.frame(t(sapply(df,c))) # convert to df
+    output <- rbind(output, df_2) # run ukpolice and add to dataframe
+    print(paste("Working... ", i, " of ", num_months_backwards, " retrieved", sep = ""))
+    print(date)
+  }
+  return(output)
+}
+
+#stop_search_force_data <- retrieve_force_data("west-midlands", 8, 2021, 12) 
+# last time force data compiled was March 2021
+```
+
+
+
+
+
+
+
