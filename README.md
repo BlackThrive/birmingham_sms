@@ -85,7 +85,7 @@ To load the analysis script, use *File > Open File*, navigate to the ***scripts*
 
 If you just want to view the knitted html document, using your system file navigator navigate to the scripts folder and open **birmingham_sms_analysis.html** in your preferred browser.
 
-**stop_and_search_retrieval.Rmd** is the script used to extract data from the Police API. It is not necessary to run this script because its output is already provided in the data folder (**data/birmingham_stop_search_2020_09_2021_08.csv**).
+**stop_and_search_retrieval.Rmd** is the script used to extract Stop and Search data from the Police API based on the coordinates of Birmingham's boundary. It is not necessary to run this script because its output is already provided in the data folder (**data/birmingham_stop_search_2020_09_2021_08.csv**).
 
 ## Contact
 
