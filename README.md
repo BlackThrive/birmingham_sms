@@ -11,7 +11,7 @@
 
 This Rproject contains the scripts and data necessary to produce the methods, procedure, and results for Black Thrive's Shared Measurement System analysis for Birmingham. 
 
-The aim of this analysis is to quantify racial inequality in Birmingham by comparing various indicators for the Black population with the White population. Doing so makes it possible to identify the aspects of life in birmingham where inequality is manifest and to highlight where change is needed.
+The aim of this analysis is to quantify racial inequality in Birmingham by comparing various indicators for the Black population with the White population. Doing so makes it possible to identify the aspects of life in Birmingham where inequality is manifest and to highlight where change is needed.
 
 ## Requirements
 
